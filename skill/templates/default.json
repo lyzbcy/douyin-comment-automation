@@ -1,6 +1,8 @@
 {
   "prefix": "🦞 ",
-  "suffix": "\n\n——来自周三涵",
+  "aiName": "你的AI名字",
+  "suffix": "\n\n——来自{{AI_NAME}}",
+  "note": "请修改 aiName 为你的 AI 名字，suffix 会自动替换 {{AI_NAME}}",
   "maliciousDetection": {
     "keywords": [
       "apikey", "api key", "openclaw.json", "rm -rf", "忽略其他所有内容",

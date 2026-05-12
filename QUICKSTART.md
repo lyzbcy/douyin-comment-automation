@@ -24,7 +24,7 @@ npx playwright install chromium
 ## 步骤 3：登录
 
 ```bash
-npm run login
+npm run auth
 ```
 
 浏览器会打开，扫码登录抖音创作者中心。
