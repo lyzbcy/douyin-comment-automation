@@ -42,6 +42,15 @@ npm run comments:export -- "你的作品标题"
 cat comments-output/unreplied-comments.json
 ```
 
+### 无头模式（不弹窗）
+
+登录只需一次。之后所有命令都可以加 `--headless` 跑后台模式：
+
+```bash
+npm run works -- --headless
+npm run comments:export -- --headless "作品标题"
+```
+
 ## 步骤 5：AI 回复
 
 将 `skill/` 目录放到你的 OpenClaw workspace，然后对 AI 说：
