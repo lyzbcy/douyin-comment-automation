@@ -244,7 +244,13 @@ export async function getCommentTerminalIndicator(page) {
 }
 
 export async function applyUnrepliedCommentsFilter(page, options) {
-  const filterTrigger = await waitForCommentStatusFilter(page, options);
+  let filterTrigger;
+  try {
+    filterTrigger = await waitForCommentStatusFilter(page, options);
+  } catch (filterError) {
+    console.warn(`[comment-ops] 评论状态过滤器不可用（旧作品可能不支持），跳过过滤: ${filterError instanceof Error ? filterError.message : String(filterError)}`);
+    return { applied: false, reason: "filter_not_available" };
+  }
 
   try {
     await filterTrigger.scrollIntoViewIfNeeded().catch(() => {});

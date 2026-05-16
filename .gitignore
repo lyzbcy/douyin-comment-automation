@@ -19,3 +19,4 @@ list-works.json
 # OS
 .DS_Store
 Thumbs.db
+browser-data/
