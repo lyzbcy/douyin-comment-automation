@@ -40,9 +40,11 @@ export function normalizeLookupText(value = "") {
   return normalizeText(value).toLowerCase();
 }
 
-/** 作品标题：去空白后的完整字符串（用于显示，不截断） */
+/** 作品标题：去空白后的完整字符串（用于显示，不截断）
+ *  去掉开头的#号，避免#作为CSS选择器特殊字符导致匹配失败
+ */
 export function canonicalWorkTitle(value = "") {
-  return normalizeText(String(value ?? "")).replace(/\s+/g, "");
+  return normalizeText(String(value ?? "")).replace(/\s+/g, "").replace(/^#+/, "");
 }
 
 /** 作品标题（截断版）：用于数据库存储和匹配，默认截取前15字 */
