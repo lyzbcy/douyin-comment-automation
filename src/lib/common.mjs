@@ -40,9 +40,14 @@ export function normalizeLookupText(value = "") {
   return normalizeText(value).toLowerCase();
 }
 
-/** 作品标题：去空白后的完整字符串（与导出 JSON 的 title、匹配用 lookup 同源） */
+/** 作品标题：去空白后的完整字符串（用于显示，不截断） */
 export function canonicalWorkTitle(value = "") {
   return normalizeText(String(value ?? "")).replace(/\s+/g, "");
+}
+
+/** 作品标题（截断版）：用于数据库存储和匹配，默认截取前15字 */
+export function canonicalWorkTitleForDb(value = "", maxLength = 15) {
+  return canonicalWorkTitle(value).slice(0, maxLength);
 }
 
 export function normalizeWorkTitle(value = "", maxLength = 15) {

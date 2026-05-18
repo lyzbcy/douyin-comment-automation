@@ -7,7 +7,11 @@ import {
   launchPersistentPage,
   promptForEnter
 } from "./douyin-browser.mjs";
-import { getEffectiveTimeout, setReplyFilterDebugEnabled } from "./lib/common.mjs";
+import {
+  getEffectiveTimeout,
+  setReplyFilterDebugEnabled,
+  canonicalWorkTitleForDb
+} from "./lib/common.mjs";
 import { ensureCommentPageReady, hardRefreshPage } from "./lib/comment-page.mjs";
 import {
   captureCommentListFingerprint,
@@ -238,6 +242,8 @@ export async function exportUnrepliedComments(options = {}) {
 
     const selectedWorkOutput = getSelectedWorkOutput(targetWork) ?? { title: "" };
     const includeHistory = !options.noHistory;
+    // 数据库操作使用截断标题（前15字），避免标题过长导致问题
+    const workTitleForDb = canonicalWorkTitleForDb(selectedWorkOutput.title);
 
     // 在写入当前批次之前查询历史 & 回复次数，确保数据只含过去记录
     let historyMap = new Map();
@@ -247,7 +253,7 @@ export async function exportUnrepliedComments(options = {}) {
         historyMap = getUserHistoryMap(comments.map((c) => c.username));
       }
       replyCountMap = getReplyCountMap(
-        selectedWorkOutput.title,
+        workTitleForDb,
         comments.map((c) => ({
           username: c.username,
           commentText: c.commentText
@@ -293,7 +299,7 @@ export async function exportUnrepliedComments(options = {}) {
 
     try {
       upsertComments(
-        selectedWorkOutput.title,
+        workTitleForDb,
         comments.map((c) => ({
           username: c.username,
           commentText: c.commentText,
@@ -355,6 +361,8 @@ export async function exportAllComments(options = {}) {
 
     const selectedWorkOutput = getSelectedWorkOutput(targetWork) ?? { title: "" };
     const includeHistory = !options.noHistory;
+    // 数据库操作使用截断标题（前15字），避免标题过长导致问题
+    const workTitleForDb = canonicalWorkTitleForDb(selectedWorkOutput.title);
 
     // 在写入当前批次之前查询历史 & 回复次数，确保数据只含过去记录
     let historyMap = new Map();
@@ -364,7 +372,7 @@ export async function exportAllComments(options = {}) {
         historyMap = getUserHistoryMap(comments.map((c) => c.username));
       }
       replyCountMap = getReplyCountMap(
-        selectedWorkOutput.title,
+        workTitleForDb,
         comments.map((c) => ({
           username: c.username,
           commentText: c.commentText
@@ -409,7 +417,7 @@ export async function exportAllComments(options = {}) {
 
     try {
       upsertComments(
-        selectedWorkOutput.title,
+        workTitleForDb,
         comments.map((c) => ({
           username: c.username,
           commentText: c.commentText,
@@ -437,11 +445,14 @@ export async function replyComments(options = {}) {
     throw new Error("Reply plan file must contain selectedWork.title.");
   }
 
+  // 数据库操作使用截断标题（前15字），避免标题过长导致问题
+  const workTitleForDbHint = canonicalWorkTitleForDb(selectedWorkHint.title);
+
   // 过滤掉已回复过的评论（reply_count >= 1）
   let replyPlans = allReplyPlans;
   try {
     const replyCountMap = getReplyCountMap(
-      selectedWorkHint.title,
+      workTitleForDbHint,
       allReplyPlans.map((p) => ({
         username: p.username,
         commentText: p.commentText
@@ -514,7 +525,10 @@ export async function replyComments(options = {}) {
         commentText: plan.commentText,
         replyMessage: plan.replyMessage
       }));
-      upsertComments(selectedWorkOutput?.title ?? selectedWorkHint.title, dbRows);
+      upsertComments(
+        canonicalWorkTitleForDb(selectedWorkOutput?.title ?? selectedWorkHint.title),
+        dbRows
+      );
     } catch (dbError) {
       console.warn(`[db] 写入回复失败（不影响主流程）: ${dbError?.message ?? dbError}`);
     }
@@ -523,7 +537,9 @@ export async function replyComments(options = {}) {
     // 必须用 plan 里的 username/commentText：页面上 fuzzy 匹配到的正文可能与库里（导出 JSON）不完全一致，
     // 若用快照字符串 UPDATE 会 0 行，reply_count 不增，导致同一评论被反复导出、反复回复。
     try {
-      const workTitleForDb = selectedWorkOutput?.title ?? selectedWorkHint.title;
+      const workTitleForDb = canonicalWorkTitleForDb(
+        selectedWorkOutput?.title ?? selectedWorkHint.title
+      );
       const planById = new Map(replyPlans.map((p) => [p.id, p]));
       const repliedResults = replySummary.results.filter((r) => r.status === "replied");
       let updatedRows = 0;

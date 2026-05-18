@@ -43,7 +43,8 @@ async function inspectWorksInSideSheet(sideSheet) {
       }
 
       const lines = getLines(node);
-      if (lines.length < 2 || lines.length > 8) {
+      // 放宽行数限制，允许超长标题的作品卡片
+      if (lines.length < 2) {
         return false;
       }
 
@@ -58,7 +59,8 @@ async function inspectWorksInSideSheet(sideSheet) {
       }
 
       const text = normalize(node.innerText || node.textContent || "");
-      if (!text || text.length > 200) {
+      // 去掉长度限制，超长标题也能保存（截取前50字）
+      if (!text) {
         return false;
       }
 
@@ -87,7 +89,8 @@ async function inspectWorksInSideSheet(sideSheet) {
       const rawTitle =
         lines.find((line) => line && !line.includes("发布于")) || `作品-${index + 1}`;
       const fullCompact = normalize(rawTitle).replace(/\s+/g, "") || "";
-      const title = fullCompact || `作品${index + 1}`;
+      // 超长标题截取前50字保存，不忽略
+      const title = fullCompact.slice(0, 50) || `作品${index + 1}`;
       const titleKey = (fullCompact.slice(0, 15) || title).toLowerCase();
       node.setAttribute("data-codex-work-title-key", titleKey);
       node.setAttribute("data-codex-work-publish-key", normalize(publishText).toLowerCase());

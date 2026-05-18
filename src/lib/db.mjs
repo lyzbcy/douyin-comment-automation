@@ -43,6 +43,21 @@ export function getDb() {
     }
   }
 
+  // 迁移：截断已有长标题（超过15字的标题截取前15字）
+  // 防止历史数据因标题过长导致匹配失败
+  try {
+    const truncateStmt = _db.prepare(`
+      UPDATE comments SET work_title = SUBSTR(work_title, 1, 15)
+      WHERE LENGTH(work_title) > 15
+    `);
+    const info = truncateStmt.run();
+    if (info.changes > 0) {
+      console.log(`[db] 已截断 ${info.changes} 条评论的长标题（保留前15字）`);
+    }
+  } catch {
+    // 迁移失败不影响主流程
+  }
+
   return _db;
 }
 
