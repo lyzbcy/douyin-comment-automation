@@ -58,10 +58,54 @@ function parseArgs(argv) {
 }
 
 // ---------------------------------------------------------------------------
-// Login check — detect Mode A / Mode B expiration
+// Login check — robust multi-signal detection
 // ---------------------------------------------------------------------------
 function isLoginExpired(pageUrl) {
-  return /login|passport/i.test(pageUrl);
+  return /\/login|\/passport|\/passport[-_]/i.test(pageUrl);
+}
+
+/**
+ * Robust login check: verifies the page is actually on the creator center
+ * by looking for the "选择作品" button, not just checking the URL.
+ * Returns true only if we're confident the login has expired.
+ */
+async function isLoginExpiredRobust(page, options = {}) {
+  const url = page.url();
+
+  // Fast check: obvious login/passport redirect
+  if (isLoginExpired(url)) {
+    // Double-check: wait briefly for potential redirect back
+    await page.waitForTimeout(2000);
+    const urlAfter = page.url();
+    if (isLoginExpired(urlAfter)) {
+      // URL still points to login — confirm by checking DOM
+      const hasLoginElement = await page.evaluate(() => {
+        const text = (document.body.innerText || '').toLowerCase();
+        return text.includes('扫码登录') || text.includes('账号登录') ||
+               text.includes('密码登录') || !!document.querySelector('input[type="password"]');
+      });
+      if (hasLoginElement) return true;
+    }
+  }
+
+  // Check for key creator center elements
+  const hasCreatorElements = await page.evaluate(() => {
+    return !!document.querySelector('[role="button"][class*="select"], button[class*="select"]') ||
+           document.body.innerText.includes('选择作品') ||
+           document.body.innerText.includes('评论管理');
+  });
+
+  if (hasCreatorElements) return false;
+
+  // Neither login page nor creator center — page may still be loading
+  // Wait and retry once
+  await page.waitForTimeout(3000);
+  const retryHasCreator = await page.evaluate(() => {
+    return document.body.innerText.includes('选择作品') ||
+           document.body.innerText.includes('评论管理');
+  });
+
+  return !retryHasCreator;
 }
 
 // ---------------------------------------------------------------------------
@@ -97,8 +141,8 @@ async function main() {
       uiTimeoutMs: 30000,
     });
 
-    // Check login status after navigation
-    if (isLoginExpired(page.url())) {
+    // Check login status after navigation (robust multi-signal)
+    if (await isLoginExpiredRobust(page)) {
       console.error('LOGIN_EXPIRED: 登录态已失效，请手动登录');
       loginExpired = true;
       return;
@@ -142,8 +186,8 @@ async function main() {
           console.log('✅ 无未回复');
         }
       } catch (e) {
-        // Check for login expiration in error messages
-        if (/StatusCode.*8|用户未登录|login/i.test(e.message)) {
+        // Check for login expiration in error messages (strict patterns only)
+        if (/StatusCode[^0-9]*8\b|用户未登录|session.*expired|登录.*过期|登录.*失效/i.test(e.message)) {
           console.error('LOGIN_EXPIRED: 登录态已失效');
           loginExpired = true;
           break;
@@ -165,7 +209,7 @@ async function main() {
     );
     console.log(`已写入: ${args.outPath}`);
   } catch (e) {
-    if (/StatusCode.*8|用户未登录|login/i.test(e.message)) {
+    if (/StatusCode[^0-9]*8\b|用户未登录|session.*expired|登录.*过期|登录.*失效/i.test(e.message)) {
       console.error('LOGIN_EXPIRED: 登录态已失效，请手动登录');
       loginExpired = true;
     } else {
