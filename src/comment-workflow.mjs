@@ -30,7 +30,8 @@ import {
   getReplyCountMap,
   getUserHistoryMap,
   incrementReplyCount,
-  upsertComments
+  upsertComments,
+  cleanupOldData
 } from "./lib/db-ops.mjs";
 
 const DEFAULT_NAVIGATION_TIMEOUT_MS = 60000;
@@ -565,6 +566,34 @@ export async function replyComments(options = {}) {
       }
     } catch (dbError) {
       console.warn(`[db] 更新回复计数失败（不影响主流程）: ${dbError?.message ?? dbError}`);
+    }
+
+    // ── 回复后清理 ──────────────────────────────────────────
+    try {
+      // 1. 清理已下载的评论图片（回复完成后不再需要）
+      const imageDir = path.resolve(path.dirname(outputPath), "comment-images");
+      if (fs.existsSync(imageDir)) {
+        const files = fs.readdirSync(imageDir);
+        if (files.length > 0) {
+          for (const f of files) {
+            fs.unlinkSync(path.join(imageDir, f));
+          }
+          console.log(`[cleanup] 已清理 ${files.length} 张评论图片`);
+        }
+      }
+
+      // 2. 清理 30 天前的数据库旧数据
+      const cleaned = cleanupOldData(30);
+      const total = cleaned.comments + cleaned.videoStats + cleaned.videoTracking + cleaned.trackingMeta;
+      if (total > 0) {
+        console.log(
+          `[cleanup] 已清理 ${total} 条旧数据` +
+          `（评论 ${cleaned.comments}，视频快照 ${cleaned.videoStats}，` +
+          `追踪点 ${cleaned.videoTracking}，追踪元 ${cleaned.trackingMeta}）`
+        );
+      }
+    } catch (cleanupError) {
+      console.warn(`[cleanup] 清理失败（不影响主流程）: ${cleanupError?.message ?? cleanupError}`);
     }
 
     if (keepBrowserOpenAfterRun) {

@@ -31,6 +31,63 @@ export function getDb() {
     )
   `);
 
+  // Video stats table (scraped from creator center data-center)
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS video_stats (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp       TEXT NOT NULL,
+      title           TEXT NOT NULL,
+      publish_date    TEXT,
+      plays           INTEGER DEFAULT 0,
+      avg_duration_sec REAL DEFAULT 0,
+      ctr             REAL DEFAULT 0,
+      finish_rate     REAL DEFAULT 0,
+      likes           INTEGER DEFAULT 0,
+      comments        INTEGER DEFAULT 0,
+      shares          INTEGER DEFAULT 0,
+      favorites       INTEGER DEFAULT 0,
+      danmaku         INTEGER DEFAULT 0,
+      status          TEXT,
+      profile_visits  INTEGER DEFAULT 0,
+      follower_gain   INTEGER DEFAULT 0
+    )
+  `);
+
+  // Video tracking checkpoints (every ~30 min)
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS video_tracking (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      video_title          TEXT NOT NULL,
+      publish_date         TEXT,
+      checkpoint_time      TEXT NOT NULL,
+      hours_since_publish  REAL DEFAULT 0,
+      plays                INTEGER DEFAULT 0,
+      likes                INTEGER DEFAULT 0,
+      comments             INTEGER DEFAULT 0,
+      shares               INTEGER DEFAULT 0,
+      favorites            INTEGER DEFAULT 0,
+      ctr5s                REAL DEFAULT 0,
+      avg_duration_sec     REAL DEFAULT 0,
+      engagement_rate      REAL DEFAULT 0,
+      plays_per_hour       REAL DEFAULT 0,
+      cumulative_growth    INTEGER DEFAULT 0,
+      predicted_final_plays INTEGER DEFAULT 0,
+      predicted_tier       TEXT,
+      confidence           REAL DEFAULT 0
+    )
+  `);
+
+  // Video tracking meta (one row per tracked video)
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS video_tracking_meta (
+      video_title      TEXT PRIMARY KEY,
+      publish_date     TEXT,
+      tracking_started TEXT NOT NULL,
+      baseline_plays   INTEGER DEFAULT 0,
+      tracking_active  INTEGER DEFAULT 1
+    )
+  `);
+
   // 为旧版本数据库添加新列（列已存在时会抛异常，忽略即可）
   for (const migration of [
     "ALTER TABLE comments ADD COLUMN comment_time TEXT NOT NULL DEFAULT '2026-03-03'",

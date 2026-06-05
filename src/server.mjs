@@ -89,6 +89,49 @@ app.get("/api/wordcloud", (_req, res) => {
   }
 });
 
+// ── Video data APIs ───────────────────────────────────────────────────────
+
+/** Latest snapshot of all videos */
+app.get("/api/videos", (_req, res) => {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT v1.* FROM video_stats v1
+    INNER JOIN (
+      SELECT title, MAX(timestamp) as max_ts
+      FROM video_stats GROUP BY title
+    ) v2 ON v1.title = v2.title AND v1.timestamp = v2.max_ts
+    ORDER BY v1.plays DESC
+  `).all();
+  res.json(rows);
+});
+
+/** Growth curve for a single video */
+app.get("/api/videos/:title/growth", (req, res) => {
+  const db = getDb();
+  const rows = db.prepare(
+    "SELECT * FROM video_stats WHERE title = ? ORDER BY timestamp ASC"
+  ).all(req.params.title);
+  res.json(rows);
+});
+
+/** Active prediction tracking */
+app.get("/api/predictions", (_req, res) => {
+  const db = getDb();
+  const active = db.prepare(`
+    SELECT vtm.*, vt_latest.*
+    FROM video_tracking_meta vtm
+    LEFT JOIN (
+      SELECT vt1.* FROM video_tracking vt1
+      INNER JOIN (
+        SELECT video_title, MAX(checkpoint_time) as max_ct
+        FROM video_tracking GROUP BY video_title
+      ) vt2 ON vt1.video_title = vt2.video_title AND vt1.checkpoint_time = vt2.max_ct
+    ) vt_latest ON vtm.video_title = vt_latest.video_title
+    WHERE vtm.tracking_active = 1
+  `).all();
+  res.json(active);
+});
+
 // ── OpenClaw「思考」实时流（JSONL session）────────────────────
 
 /**
@@ -603,6 +646,7 @@ const HTML = `<!DOCTYPE html>
 <div class="tab-shell">
   <nav class="tab-bar" role="tablist" aria-label="主视图">
     <button type="button" role="tab" class="tab-btn active" id="tabBtnComments" aria-controls="tabPanelComments" aria-selected="true" onclick="switchMainTab('comments')">评论流</button>
+    <button type="button" role="tab" class="tab-btn" id="tabBtnVideos" aria-controls="tabPanelVideos" aria-selected="false" onclick="switchMainTab('videos')">视频数据</button>
     <button type="button" role="tab" class="tab-btn tab-thinking" id="tabBtnThinking" aria-controls="tabPanelThinking" aria-selected="false" onclick="switchMainTab('thinking')">思考流</button>
   </nav>
 
@@ -639,6 +683,27 @@ const HTML = `<!DOCTYPE html>
         <button class="page-btn" id="btnPrev" onclick="gotoPage(state.page-1)" disabled>◀ PREV</button>
         <div class="page-info">PAGE <span id="pageNum">1</span> / <span id="pageTotal">1</span></div>
         <button class="page-btn" id="btnNext" onclick="gotoPage(state.page+1)" disabled>NEXT ▶</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="tabPanelVideos" role="tabpanel" aria-labelledby="tabBtnVideos" aria-hidden="true">
+    <div class="content" style="padding:0">
+      <div class="toolbar" style="gap:8px">
+        <div style="font-size:11px;letter-spacing:3px;color:var(--cyan)">// VIDEO DATA</div>
+        <button class="filter-btn" onclick="loadVideos()" style="margin-left:auto">↻ REFRESH</button>
+      </div>
+      <div class="table-wrap" id="videoTableWrap">
+        <div class="empty-state">点击 REFRESH 加载视频数据</div>
+      </div>
+    </div>
+    <div class="content" style="padding:0;border-top:1px solid var(--border)">
+      <div class="toolbar" style="gap:8px">
+        <div style="font-size:11px;letter-spacing:3px;color:var(--magenta)">// PREDICTIONS</div>
+        <button class="filter-btn" onclick="loadPredictions()" style="margin-left:auto">↻ REFRESH</button>
+      </div>
+      <div class="table-wrap" id="predictionTableWrap">
+        <div class="empty-state">点击 REFRESH 加载预测数据</div>
       </div>
     </div>
   </div>
@@ -829,24 +894,30 @@ let ocEs = null;
 let ocInitialized = false;
 
 function switchMainTab(name) {
-  const comments = name === 'comments';
-  const pC = document.getElementById('tabPanelComments');
-  const pT = document.getElementById('tabPanelThinking');
-  const bC = document.getElementById('tabBtnComments');
-  const bT = document.getElementById('tabBtnThinking');
-  if (!pC || !pT || !bC || !bT) return;
-  pC.classList.toggle('active', comments);
-  pT.classList.toggle('active', !comments);
-  pC.setAttribute('aria-hidden', comments ? 'false' : 'true');
-  pT.setAttribute('aria-hidden', comments ? 'true' : 'false');
-  bC.classList.toggle('active', comments);
-  bT.classList.toggle('active', !comments);
-  bC.setAttribute('aria-selected', comments ? 'true' : 'false');
-  bT.setAttribute('aria-selected', comments ? 'false' : 'true');
-  if (comments) {
+  const panels = {
+    comments: { panel: 'tabPanelComments', btn: 'tabBtnComments' },
+    thinking: { panel: 'tabPanelThinking', btn: 'tabBtnThinking' },
+    videos:   { panel: 'tabPanelVideos',   btn: 'tabBtnVideos' },
+  };
+  for (const [key, ids] of Object.entries(panels)) {
+    const p = document.getElementById(ids.panel);
+    const b = document.getElementById(ids.btn);
+    if (!p || !b) continue;
+    const isActive = key === name;
+    p.classList.toggle('active', isActive);
+    p.setAttribute('aria-hidden', isActive ? 'false' : 'true');
+    b.classList.toggle('active', isActive);
+    b.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  }
+  if (name === 'comments') {
     disconnectOcStream();
     requestAnimationFrame(() => { void loadWordcloud(); });
-  } else void activateThinkingTab();
+  } else if (name === 'thinking') {
+    void activateThinkingTab();
+  } else if (name === 'videos') {
+    loadVideos();
+    loadPredictions();
+  }
 }
 
 async function activateThinkingTab() {
@@ -1017,6 +1088,65 @@ document.getElementById('searchInput').addEventListener('input', e => {
   await Promise.all([fetchStats(), loadWordcloud()]);
   await loadComments();
 })();
+
+// ── Video data tab ────────────────────────────────────────────────────────
+
+async function loadVideos() {
+  const wrap = document.getElementById('videoTableWrap');
+  if (!wrap) return;
+  wrap.innerHTML = '<div class="empty-state">LOADING<span class="blink">_</span></div>';
+  try {
+    const rows = await fetch('/api/videos').then(r => r.json());
+    if (!rows.length) { wrap.innerHTML = '<div class="empty-state">暂无视频数据 · 运行 scrape:stats 采集</div>'; return; }
+    let html = '<table><thead><tr><th>TITLE</th><th>PLAYS</th><th>LIKES</th><th>CMT</th><th>SHARE</th><th>FAV</th><th>CTR</th><th>DUR(s)</th><th>STATUS</th></tr></thead><tbody>';
+    for (const r of rows) {
+      const title = esc((r.title || '').slice(0, 20));
+      html += \`<tr>
+        <td class="td-comment" title="\${esc(r.title)}">\${title}</td>
+        <td style="color:var(--cyan);text-align:right">\${(r.plays||0).toLocaleString()}</td>
+        <td style="text-align:right">\${r.likes||0}</td>
+        <td style="text-align:right">\${r.comments||0}</td>
+        <td style="text-align:right">\${r.shares||0}</td>
+        <td style="text-align:right">\${r.favorites||0}</td>
+        <td style="text-align:right">\${((r.ctr||0)*100).toFixed(1)}%</td>
+        <td style="text-align:right">\${(r.avg_duration_sec||0).toFixed(1)}</td>
+        <td style="color:var(--dim);font-size:11px">\${esc(r.status||'')}</td>
+      </tr>\`;
+    }
+    html += '</tbody></table>';
+    wrap.innerHTML = html;
+  } catch(e) {
+    wrap.innerHTML = \`<div class="empty-state">\${esc(e.message)}</div>\`;
+  }
+}
+
+async function loadPredictions() {
+  const wrap = document.getElementById('predictionTableWrap');
+  if (!wrap) return;
+  wrap.innerHTML = '<div class="empty-state">LOADING<span class="blink">_</span></div>';
+  try {
+    const rows = await fetch('/api/predictions').then(r => r.json());
+    if (!rows.length) { wrap.innerHTML = '<div class="empty-state">暂无追踪数据 · 运行 predict --init 开始</div>'; return; }
+    let html = '<table><thead><tr><th>TITLE</th><th>HOURS</th><th>PLAYS</th><th>PREDICTED</th><th>TIER</th><th>CONF</th><th>GROWTH/h</th></tr></thead><tbody>';
+    for (const r of rows) {
+      const conf = Math.round((r.confidence || 0) * 100);
+      const confColor = conf >= 70 ? 'var(--green)' : conf >= 40 ? 'var(--yellow)' : 'var(--dim)';
+      html += \`<tr>
+        <td class="td-comment" title="\${esc(r.video_title)}">\${esc((r.video_title||'').slice(0,20))}</td>
+        <td style="text-align:right;color:var(--dim)">\${r.hours_since_publish ? r.hours_since_publish.toFixed(1) : '-'}</td>
+        <td style="text-align:right;color:var(--cyan)">\${(r.plays||0).toLocaleString()}</td>
+        <td style="text-align:right;color:var(--magenta)">\${(r.predicted_final_plays||0).toLocaleString()}</td>
+        <td style="font-size:12px">\${esc(r.predicted_tier||'')}</td>
+        <td style="text-align:right;color:\${confColor}">\${conf}%</td>
+        <td style="text-align:right;color:var(--green)">\${r.plays_per_hour ? r.plays_per_hour.toFixed(0) : '-'}</td>
+      </tr>\`;
+    }
+    html += '</tbody></table>';
+    wrap.innerHTML = html;
+  } catch(e) {
+    wrap.innerHTML = \`<div class="empty-state">\${esc(e.message)}</div>\`;
+  }
+}
 </script>
 </body>
 </html>`;

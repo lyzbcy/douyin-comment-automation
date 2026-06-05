@@ -139,3 +139,52 @@ export function incrementReplyCount(workTitle, username, commentText) {
     .run(workTitle, username, commentText);
   return info.changes ?? 0;
 }
+
+/**
+ * 清理 30 天前的旧数据。
+ *
+ * - comments：删除已回复（reply_count >= 1）且 comment_time 超过 30 天的记录
+ * - video_stats：删除 timestamp 超过 30 天的快照
+ * - video_tracking：删除 checkpoint_time 超过 30 天的检查点
+ * - video_tracking_meta：删除 tracking_active = 0 且 tracking_started 超过 30 天的条目
+ *
+ * @param {number} [days=30] - 保留天数
+ * @returns {{ comments: number, videoStats: number, videoTracking: number, trackingMeta: number }}
+ */
+export function cleanupOldData(days = 30) {
+  const db = getDb();
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const cutoffDate = cutoff.toISOString().slice(0, 10);
+
+  const result = { comments: 0, videoStats: 0, videoTracking: 0, trackingMeta: 0 };
+
+  const run = db.transaction(() => {
+    // comments: 只清理已回复的，未回复的保留（可能还有用）
+    result.comments =
+      db.prepare(
+        `DELETE FROM comments WHERE reply_count >= 1 AND comment_time < ?`
+      ).run(cutoffDate).changes ?? 0;
+
+    // video_stats: 时间序列快照，直接按时间清理
+    result.videoStats =
+      db.prepare(
+        `DELETE FROM video_stats WHERE timestamp < ?`
+      ).run(cutoff.toISOString()).changes ?? 0;
+
+    // video_tracking: 检查点数据，按时间清理
+    result.videoTracking =
+      db.prepare(
+        `DELETE FROM video_tracking WHERE checkpoint_time < ?`
+      ).run(cutoff.toISOString()).changes ?? 0;
+
+    // video_tracking_meta: 已停止追踪且超期的条目
+    result.trackingMeta =
+      db.prepare(
+        `DELETE FROM video_tracking_meta WHERE tracking_active = 0 AND tracking_started < ?`
+      ).run(cutoff.toISOString()).changes ?? 0;
+  });
+
+  run();
+  return result;
+}

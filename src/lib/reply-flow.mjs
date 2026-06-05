@@ -12,6 +12,8 @@ import {
   getCommentTerminalIndicator,
   markCommentScrollContainer,
   resetCommentScrollToTop,
+  switchToAllCommentsFilter,
+  tryAdvancePagination,
   waitForCommentListChange,
   waitForCommentsArea
 } from "./comment-ops.mjs";
@@ -429,6 +431,46 @@ async function aggressivelyAdvanceCommentScroll(
   };
 }
 
+/**
+ * Try to advance to the next page of comments, switching filters if needed.
+ * When "未回复" shows empty, pagination controls may be hidden.
+ * Fall back to switching to "全部评论", paginating, then switching back.
+ */
+async function tryAdvancePageForReply(page, options, remainingCount) {
+  // First try direct pagination (pagination might be visible even with empty list)
+  let result = await tryAdvancePagination(page, options);
+  if (result.advanced && result.pageChanged) {
+    logReplyFilterDebug("direct pagination succeeded", result.details);
+    return true;
+  }
+
+  if (remainingCount <= 0) return false;
+
+  // Switch to "全部评论" to expose pagination controls
+  logReplyFilterDebug("switching to all-comments filter for pagination");
+  await switchToAllCommentsFilter(page, options).catch(() => {});
+
+  // Wait for the comment list to reload with all comments
+  await page.waitForTimeout(1000);
+
+  // Try pagination again
+  result = await tryAdvancePagination(page, options);
+  logReplyFilterDebug("pagination attempt from all-comments view", result.details);
+
+  if (result.advanced && result.pageChanged) {
+    // Successfully moved to next page. Switch back to "未回复".
+    logReplyFilterDebug("pagination succeeded, switching back to unreplied filter");
+    await applyUnrepliedCommentsFilter(page, options).catch(() => {});
+    await page.waitForTimeout(500);
+    return true;
+  }
+
+  // If pagination still failed, switch back to "未回复" anyway
+  await applyUnrepliedCommentsFilter(page, options).catch(() => {});
+  await page.waitForTimeout(500);
+  return false;
+}
+
 export async function replyToComments(page, options) {
   await applyUnrepliedCommentsFilter(page, options);
   await waitForCommentsArea(page, options);
@@ -446,6 +488,8 @@ export async function replyToComments(page, options) {
   let loggedNoMatchSnapshot = false;
   let stalledScrollAttempts = 0;
   let bottomSearchBursts = 0;
+  let paginationAttempts = 0;
+  const MAX_PAGINATION_ATTEMPTS = 10;
   let exitReason = "";
   let exitDetails = null;
 
@@ -552,12 +596,41 @@ export async function replyToComments(page, options) {
 
     const terminalIndicator = await getCommentTerminalIndicator(page);
     if (terminalIndicator) {
+      const remainingCount = Array.isArray(options.replyPlans)
+        ? options.replyPlans.filter((plan) => !processedPlanIds.has(plan.id)).length
+        : 0;
+
+      // Try pagination for both "no more comments" and "no matching comments"
+      const shouldTryPagination =
+        (terminalIndicator.kind === "no_more_comments_indicator" ||
+         terminalIndicator.kind === "no_matching_comments_indicator") &&
+        remainingCount > 0 &&
+        paginationAttempts < MAX_PAGINATION_ATTEMPTS;
+
+      if (shouldTryPagination) {
+        const advanced = await tryAdvancePageForReply(page, options, remainingCount);
+        logReplyFilterDebug("attempted pagination on terminal indicator", {
+          kind: terminalIndicator.kind,
+          paginationAttempt: paginationAttempts + 1,
+          remainingCount,
+          advanced
+        });
+        if (advanced) {
+          paginationAttempts += 1;
+          lastProgressAt = Date.now();
+          loggedNoMatchSnapshot = false;
+          stalledScrollAttempts = 0;
+          bottomSearchBursts = 0;
+          continue;
+        }
+        paginationAttempts += 1;
+      }
+
       exitReason = terminalIndicator.kind;
       exitDetails = {
         terminalIndicator,
-        remainingPlanCount: Array.isArray(options.replyPlans)
-          ? options.replyPlans.filter((plan) => !processedPlanIds.has(plan.id)).length
-          : 0
+        remainingPlanCount: remainingCount,
+        paginationAttempts
       };
       logReplyFilterDebug("reply flow completed: reached terminal indicator", exitDetails);
       break;
@@ -589,14 +662,43 @@ export async function replyToComments(page, options) {
 
     const terminalIndicatorAfterScroll = await getCommentTerminalIndicator(page);
     if (!hasUnprocessed && terminalIndicatorAfterScroll) {
+      const remainingCount = Array.isArray(options.replyPlans)
+        ? options.replyPlans.filter((plan) => !processedPlanIds.has(plan.id)).length
+        : 0;
+
+      // Try pagination for both kinds of terminal indicators
+      const shouldTryPagination =
+        (terminalIndicatorAfterScroll.kind === "no_more_comments_indicator" ||
+         terminalIndicatorAfterScroll.kind === "no_matching_comments_indicator") &&
+        remainingCount > 0 &&
+        paginationAttempts < MAX_PAGINATION_ATTEMPTS;
+
+      if (shouldTryPagination) {
+        const advanced = await tryAdvancePageForReply(page, options, remainingCount);
+        logReplyFilterDebug("attempted pagination after scroll", {
+          kind: terminalIndicatorAfterScroll.kind,
+          paginationAttempt: paginationAttempts + 1,
+          remainingCount,
+          advanced
+        });
+        if (advanced) {
+          paginationAttempts += 1;
+          lastProgressAt = Date.now();
+          loggedNoMatchSnapshot = false;
+          stalledScrollAttempts = 0;
+          bottomSearchBursts = 0;
+          continue;
+        }
+        paginationAttempts += 1;
+      }
+
       exitReason = terminalIndicatorAfterScroll.kind;
       exitDetails = {
         terminalIndicator: terminalIndicatorAfterScroll,
-        remainingPlanCount: Array.isArray(options.replyPlans)
-          ? options.replyPlans.filter((plan) => !processedPlanIds.has(plan.id)).length
-          : 0,
+        remainingPlanCount: remainingCount,
         scrollMoved,
-        anyListChange: scrollState.anyListChange
+        anyListChange: scrollState.anyListChange,
+        paginationAttempts
       };
       logReplyFilterDebug(
         "reply flow completed: reached terminal indicator after scrolling",

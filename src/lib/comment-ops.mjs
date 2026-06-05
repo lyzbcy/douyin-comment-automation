@@ -244,6 +244,21 @@ export async function getCommentTerminalIndicator(page) {
 }
 
 export async function applyUnrepliedCommentsFilter(page, options) {
+  return applyCommentFilter(page, "未回复", options);
+}
+
+/**
+ * Switch the comment filter to "全部评论" (all comments, including replied).
+ * Used as a fallback when "未回复" returns empty but there are more pages.
+ */
+export async function switchToAllCommentsFilter(page, options) {
+  return applyCommentFilter(page, "全部评论", options);
+}
+
+/**
+ * Generic: switch comment status filter to the given label.
+ */
+async function applyCommentFilter(page, targetLabel, options) {
   let filterTrigger;
   try {
     filterTrigger = await waitForCommentStatusFilter(page, options);
@@ -256,8 +271,8 @@ export async function applyUnrepliedCommentsFilter(page, options) {
     await filterTrigger.scrollIntoViewIfNeeded().catch(() => {});
     const currentText = normalizeText(await filterTrigger.textContent());
     logReplyFilterDebug("current comment filter text", currentText);
-    if (currentText.includes("未回复")) {
-      logReplyFilterDebug("comment filter already set to unreplied");
+    if (currentText.includes(targetLabel)) {
+      logReplyFilterDebug(`comment filter already set to ${targetLabel}`);
       return {
         applied: true,
         reason: "already_selected"
@@ -284,21 +299,21 @@ export async function applyUnrepliedCommentsFilter(page, options) {
     for (let index = 0; index < optionCount; index += 1) {
       const option = optionsLocator.nth(index);
       const text = optionTexts[index];
-      if (text !== "未回复") {
+      if (text !== targetLabel) {
         continue;
       }
 
       const filterSelectedWait = page
         .waitForFunction(
-          () => {
+          (target) => {
             const normalize = (value = "") => value.replace(/\s+/g, " ").trim();
             return Array.from(
               document.querySelectorAll('div[role="combobox"].douyin-creator-interactive-select')
             ).some((node) =>
-              normalize(node.innerText || node.textContent || "").includes("未回复")
+              normalize(node.innerText || node.textContent || "").includes(target)
             );
           },
-          null,
+          targetLabel,
           { timeout: refreshTimeoutMs }
         )
         .then(() => true)
@@ -306,12 +321,12 @@ export async function applyUnrepliedCommentsFilter(page, options) {
 
       const domWait = page
         .waitForFunction(
-          (fingerprint) => {
+          (data) => {
             const normalize = (value = "") => value.replace(/\s+/g, " ").trim();
             const filterSelected = Array.from(
               document.querySelectorAll('div[role="combobox"].douyin-creator-interactive-select')
             ).some((node) =>
-              normalize(node.innerText || node.textContent || "").includes("未回复")
+              normalize(node.innerText || node.textContent || "").includes(data.target)
             );
 
             if (!filterSelected) {
@@ -349,9 +364,9 @@ export async function applyUnrepliedCommentsFilter(page, options) {
               .filter(Boolean)
               .join("||");
 
-            return currentFingerprint !== fingerprint || currentFingerprint.length === 0;
+            return currentFingerprint !== data.fingerprint || currentFingerprint.length === 0;
           },
-          previousFingerprint,
+          { fingerprint: previousFingerprint, target: targetLabel },
           { timeout: refreshTimeoutMs }
         )
         .then(() => true)
@@ -359,13 +374,13 @@ export async function applyUnrepliedCommentsFilter(page, options) {
 
       await option.click();
       const [filterSelected, domUpdated] = await Promise.all([filterSelectedWait, domWait]);
-      logReplyFilterDebug("applied unreplied filter", {
+      logReplyFilterDebug(`applied ${targetLabel} filter`, {
         filterSelected,
         domUpdated
       });
 
       if (!filterSelected) {
-        throw new Error("点击“未回复”后，下拉框没有成功切换到目标选项。");
+        throw new Error(`点击"${targetLabel}"后，下拉框没有成功切换到目标选项。`);
       }
 
       if (domUpdated) {
@@ -381,11 +396,11 @@ export async function applyUnrepliedCommentsFilter(page, options) {
     }
 
     await page.keyboard.press("Escape").catch(() => {});
-    throw new Error("评论状态过滤下拉框中未找到“未回复”选项。");
+    throw new Error(`评论状态过滤下拉框中未找到"${targetLabel}"选项。`);
   } catch (error) {
     await page.keyboard.press("Escape").catch(() => {});
     throw new Error(
-      `切换“未回复”过滤失败: ${error instanceof Error ? error.message : String(error)}`
+      `切换"${targetLabel}"过滤失败: ${error instanceof Error ? error.message : String(error)}`
     );
   }
 }
@@ -578,6 +593,187 @@ export async function advanceCommentScroll(page, scrollContainer, options = {}) 
   );
 }
 
+/**
+ * Try to advance to the next page of comments using pagination controls.
+ * Uses three strategies in order:
+ *   1. CSS selector matching (next-page buttons / arrow icons)
+ *   2. Active page number + click next
+ *   3. Arrow character matching (>, ›, ») in bottom elements
+ * If all fail, prints diagnostic info for debugging.
+ */
+export async function tryAdvancePagination(page, options = {}) {
+  const result = {
+    advanced: false,
+    pageChanged: false,
+    details: { strategy: "none" }
+  };
+
+  try {
+    // Strategy 1: Look for "下一页" button or next-page arrow icon
+    const paginationSelectors = [
+      'li.semi-page-item:last-child:not(.semi-page-item-active)',
+      'button:has-text("下一页"), li:has-text("下一页"), span:has-text("下一页")',
+      'li.semi-page-item [data-icon="chevron_right"], li.semi-page-item .semi-icon-chevron_right',
+      'ul[class*="pagination"] li:last-child, ul[class*="page"] li:last-child',
+    ];
+
+    let clickTarget = null;
+    for (const selector of paginationSelectors) {
+      const locator = page.locator(selector).first();
+      try {
+        const visible = await locator.isVisible({ timeout: 2000 }).catch(() => false);
+        if (visible) {
+          const disabled = await locator.evaluate(el => {
+            return el.classList.contains('semi-page-item-disabled') ||
+                   el.hasAttribute('disabled') ||
+                   el.getAttribute('aria-disabled') === 'true';
+          }).catch(() => false);
+
+          if (!disabled) {
+            clickTarget = locator;
+            result.details.strategy = `selector:${selector}`;
+            break;
+          }
+        }
+      } catch (e) {
+        // selector not found, try next
+      }
+    }
+
+    // Strategy 2: Find the active page number, click the next one
+    if (!clickTarget) {
+      try {
+        const pageItems = await page.evaluate(() => {
+          const items = [];
+          const allItems = document.querySelectorAll('li.semi-page-item');
+          allItems.forEach((item, idx) => {
+            const text = (item.textContent || '').trim();
+            const isActive = item.classList.contains('semi-page-item-active');
+            const isDisabled = item.classList.contains('semi-page-item-disabled');
+            items.push({ idx, text, isActive, isDisabled });
+          });
+          return items;
+        });
+
+        const activeIdx = pageItems.findIndex(p => p.isActive);
+        if (activeIdx >= 0 && activeIdx < pageItems.length - 1) {
+          const nextItem = pageItems[activeIdx + 1];
+          if (!nextItem.isDisabled) {
+            clickTarget = page.locator('li.semi-page-item').nth(nextItem.idx);
+            result.details.strategy = `page_number:${nextItem.text}`;
+          }
+        }
+      } catch (e) {
+        // strategy 2 failed
+      }
+    }
+
+    // Strategy 3: Any element at the bottom with ">" or arrow character
+    if (!clickTarget) {
+      try {
+        const allElements = page.locator('div, button, span, li');
+        const count = await allElements.count();
+        for (let i = count - 1; i >= Math.max(0, count - 30); i--) {
+          const el = allElements.nth(i);
+          const text = await el.textContent().catch(() => '');
+          const visible = await el.isVisible().catch(() => false);
+          if (visible && (text.trim() === '>' || text.trim() === '›' || text.trim() === '»')) {
+            const disabled = await el.evaluate(node => {
+              return node.hasAttribute('disabled') ||
+                     node.getAttribute('aria-disabled') === 'true' ||
+                     node.classList.contains('disabled');
+            }).catch(() => true);
+            if (!disabled) {
+              clickTarget = el;
+              result.details.strategy = 'arrow_char';
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        // strategy 3 failed
+      }
+    }
+
+    if (!clickTarget) {
+      // Dump bottom-of-page elements for diagnostics
+      try {
+        const bottomHtml = await page.evaluate(() => {
+          const vh = window.innerHeight;
+          const elements = [];
+          const all = document.querySelectorAll('div, button, span, li, a, ul, nav');
+          for (const el of all) {
+            const rect = el.getBoundingClientRect();
+            if (rect.bottom < vh * 0.6 || rect.top > vh + 200) continue;
+            if (rect.width < 10 || rect.height < 5) continue;
+            const tag = el.tagName.toLowerCase();
+            const cls = (el.className && typeof el.className === 'string')
+              ? el.className.slice(0, 60) : '';
+            const text = (el.textContent || '').trim().slice(0, 80);
+            const id = el.id ? `#${el.id}` : '';
+            if (text || cls) {
+              elements.push(`${tag}${id}.${cls} text="${text}"`);
+            }
+            if (elements.length >= 40) break;
+          }
+          return elements.join('\n');
+        });
+        result.details.bottomDiagnostics = bottomHtml;
+        console.log("[pagination] No click target found. Bottom-of-page diagnostics:\n" + bottomHtml);
+      } catch (diagErr) {
+        result.details.bottomDiagnostics = `diag error: ${diagErr.message}`;
+        console.log("[pagination] Diagnostic error:", diagErr.message);
+      }
+      return result;
+    }
+
+    // Before clicking, capture the current state
+    const previousFingerprint = await captureCommentListFingerprint(page).catch(() => '');
+    const previousActivePage = await page.evaluate(() => {
+      const active = document.querySelector('li.semi-page-item-active, .semi-page-item-active');
+      return active ? (active.textContent || '').trim() : '';
+    }).catch(() => '');
+
+    // Scroll to the pagination area first
+    await clickTarget.scrollIntoViewIfNeeded().catch(() => {});
+    await page.waitForTimeout(300);
+
+    // Click it
+    await clickTarget.click({ timeout: 5000 }).catch(() => {});
+    result.details.clicked = true;
+
+    // Wait for page change
+    const pageChangedPromise = page.waitForFunction(
+      (prevPage) => {
+        const active = document.querySelector('li.semi-page-item-active, .semi-page-item-active');
+        const current = active ? (active.textContent || '').trim() : '';
+        return current !== prevPage;
+      },
+      previousActivePage,
+      { timeout: 8000 }
+    ).then(() => true).catch(() => false);
+
+    // Also wait for comment list to change
+    const listChanged = await waitForCommentListChange(page, previousFingerprint, 6000).catch(() => false);
+
+    const pageChanged = await pageChangedPromise;
+
+    // Give extra time for comments to render
+    await page.waitForTimeout(1500);
+
+    result.advanced = true;
+    result.pageChanged = pageChanged || listChanged;
+    result.details.pageChanged = pageChanged;
+    result.details.listChanged = listChanged;
+    result.details.previousPage = previousActivePage;
+
+    return result;
+  } catch (e) {
+    result.details.error = e.message;
+    return result;
+  }
+}
+
 export async function collectComments(page, options) {
   const filterMode = options.filterMode ?? "unreplied";
   if (filterMode === "all") {
@@ -614,6 +810,8 @@ export async function collectComments(page, options) {
   const startedAt = Date.now();
   let lastProgressAt = startedAt;
   let stalledScrollAttempts = 0;
+  let paginationAttempts = 0;
+  const MAX_COLLECT_PAGINATION_ATTEMPTS = 15;
 
   while (Date.now() - startedAt < timeoutMs) {
     const snapshot = await extractCommentSnapshot(page);
@@ -624,6 +822,29 @@ export async function collectComments(page, options) {
 
     const terminalIndicator = await getCommentTerminalIndicator(page);
     if (terminalIndicator) {
+      // Try pagination before giving up, if we haven't hit the limit yet
+      if (
+        terminalIndicator.kind === "no_more_comments_indicator" &&
+        commentsBySignature.size < options.limit &&
+        paginationAttempts < MAX_COLLECT_PAGINATION_ATTEMPTS
+      ) {
+        const paginationResult = await tryAdvancePagination(page, options);
+        logReplyFilterDebug("collect: attempted pagination", {
+          strategy: paginationResult.details.strategy,
+          advanced: paginationResult.advanced,
+          pageChanged: paginationResult.pageChanged,
+          paginationAttempt: paginationAttempts + 1,
+          collectedCount: commentsBySignature.size
+        });
+        if (paginationResult.advanced && paginationResult.pageChanged) {
+          paginationAttempts += 1;
+          stalledScrollAttempts = 0;
+          lastProgressAt = Date.now();
+          continue;
+        }
+        paginationAttempts += 1;
+      }
+
       logReplyFilterDebug("comment collection reached terminal indicator", terminalIndicator);
       break;
     }
@@ -645,6 +866,29 @@ export async function collectComments(page, options) {
 
     const terminalIndicatorAfterScroll = await getCommentTerminalIndicator(page);
     if (terminalIndicatorAfterScroll) {
+      // Try pagination before giving up
+      if (
+        terminalIndicatorAfterScroll.kind === "no_more_comments_indicator" &&
+        commentsBySignature.size < options.limit &&
+        paginationAttempts < MAX_COLLECT_PAGINATION_ATTEMPTS
+      ) {
+        const paginationResult = await tryAdvancePagination(page, options);
+        logReplyFilterDebug("collect: attempted pagination after scroll", {
+          strategy: paginationResult.details.strategy,
+          advanced: paginationResult.advanced,
+          pageChanged: paginationResult.pageChanged,
+          paginationAttempt: paginationAttempts + 1,
+          collectedCount: commentsBySignature.size
+        });
+        if (paginationResult.advanced && paginationResult.pageChanged) {
+          paginationAttempts += 1;
+          stalledScrollAttempts = 0;
+          lastProgressAt = Date.now();
+          continue;
+        }
+        paginationAttempts += 1;
+      }
+
       logReplyFilterDebug(
         "comment collection reached terminal indicator after scrolling",
         terminalIndicatorAfterScroll
