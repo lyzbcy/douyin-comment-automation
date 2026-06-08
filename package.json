@@ -30,6 +30,7 @@
     "wordcloud": "node ./src/compute-wordcloud.mjs",
     "txt2img": "node ./src/txt2img.mjs",
     "scrape:stats": "node ./src/scrape-video-stats.mjs",
+    "scrape:stats2": "node ./src/scrape-video-stats-v2.mjs",
     "predict": "node ./src/video-prediction.mjs",
     "sync:feishu": "node ./src/sync/feishu-sync.mjs",
     "cleanup": "node ./src/cleanup.mjs",
@@ -41,7 +42,7 @@
   "dependencies": {
     "better-sqlite3": "^12.8.0",
     "express": "^5.2.1",
-    "playwright": "^1.52.0",
+    "playwright": "^1.60.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
