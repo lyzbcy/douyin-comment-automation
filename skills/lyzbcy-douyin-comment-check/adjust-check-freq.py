@@ -64,7 +64,7 @@ def get_cron_runs_summary(days=3):
     try:
         result = subprocess.run(
             ["openclaw", "cron", "runs",
-             "--id", "454e9b2c-b291-4629-ae05-eaaf1dc096f3",
+             "--id", "d138d798-276d-4250-b73e-84bdcd6f2631",
              "--limit", "72"],  # 3天 * 24小时
             capture_output=True, text=True, timeout=30
         )
@@ -120,7 +120,10 @@ def calculate_interval(stats):
     total = stats["totalRuns"]
 
     if total == 0:
-        return MAX_INTERVAL_HOURS
+        # cron history unavailable (openclaw cli / node version issue) ->
+        # keep high frequency instead of dropping to MAX, otherwise the
+        # interval lock would SKIP forever and comments never get replied.
+        return MIN_INTERVAL_HOURS
 
     if found_new == 0:
         # 完全没有新评论 → 最低频
