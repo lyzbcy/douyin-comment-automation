@@ -20,3 +20,10 @@ list-works.json
 .DS_Store
 Thumbs.db
 browser-data/
+
+# lyzbcy-douyin-comment-check 运行产物(不公开)
+skills/lyzbcy-douyin-comment-check/persona.json
+skills/lyzbcy-douyin-comment-check/logs/
+skills/lyzbcy-douyin-comment-check/works-refreshed-*
+skills/lyzbcy-douyin-comment-check/comment-check-report.md
+skills/lyzbcy-douyin-comment-check/memory-insufficient-report.md
