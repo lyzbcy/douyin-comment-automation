@@ -18,6 +18,7 @@ MANIFEST_FILE = OUTPUT_DIR / "reply-plan-manifest.json"
 UNREPLIED_FILE = OUTPUT_DIR / "unreplied-latest.json"
 LOG_DIR = BASE_DIR / "logs"
 LOG_KEEP_DAYS = 7
+WORKS_REFRESH_INTERVAL_HOURS = 2  # 作品列表刷新间隔：超过此时间则重新拉取，避免漏掉新发视频
 SH_TZ = ZoneInfo("Asia/Shanghai")
 
 
@@ -27,6 +28,19 @@ def now_text() -> str:
 
 def shanghai_day() -> str:
     return datetime.now(SH_TZ).strftime("%Y-%m-%d")
+
+
+def works_needs_refresh(marker: Path) -> bool:
+    """作品列表是否需要刷新。
+
+    方案 B：标记文件按时间判断，超过 WORKS_REFRESH_INTERVAL_HOURS 即重新拉取。
+    之前是"每天只刷新一次"（纯存在性判断），当天发新视频后整天的检查都用旧列表，
+    导致新视频的未回复评论永远查不到。
+    """
+    if not marker.exists():
+        return True
+    age = datetime.now(SH_TZ).timestamp() - marker.stat().st_mtime
+    return age > WORKS_REFRESH_INTERVAL_HOURS * 3600
 
 
 def run(cmd, cwd=None, check=True):
@@ -217,8 +231,9 @@ def main():
             return
 
         marker = BASE_DIR / f"works-refreshed-{shanghai_day()}"
-        if not marker.exists():
+        if works_needs_refresh(marker):
             run(["npm", "run", "works"], cwd=BASE_DIR)
+            marker.write_text("done\n", encoding="utf-8")  # 更新标记时间戳
 
         collect_started_at = datetime.now().timestamp()
 
