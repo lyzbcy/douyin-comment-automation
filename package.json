@@ -33,6 +33,7 @@
     "predict": "node ./src/video-prediction.mjs",
     "sync:feishu": "node ./src/sync/feishu-sync.mjs",
     "cleanup": "node ./src/cleanup.mjs",
+    "test": "node --test test/*.test.mjs",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write \"src/**/*.mjs\" \"*.json\" \"*.md\"",

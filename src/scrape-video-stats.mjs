@@ -22,6 +22,7 @@ import path from "node:path";
 import process from "node:process";
 import { chromium } from "playwright";
 import { getDb, closeDb } from "./lib/db.mjs";
+import { normalizePercent } from "./lib/normalizers.mjs";
 
 // ── Configuration ──────────────────────────────────────────────────────────
 
@@ -212,16 +213,6 @@ function normalizeNumber(value) {
     const cleaned = value.replace(/[,%]/g, "").trim();
     const num = parseFloat(cleaned);
     return isNaN(num) ? 0 : num;
-  }
-  return 0;
-}
-
-function normalizePercent(value) {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") {
-    const cleaned = value.replace(/%/g, "").trim();
-    const num = parseFloat(cleaned);
-    return isNaN(num) ? 0 : num / 100;
   }
   return 0;
 }
