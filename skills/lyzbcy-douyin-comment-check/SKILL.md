@@ -55,6 +55,17 @@ agent 的身份信息全部集中在 `persona.json`，**改这一个文件即可
 - `persona.json` 含真实身份，**不应提交到公开仓库**（加入 `.gitignore`）
 - `persona.example.json` 是带占位说明的样板，可随仓库公开
 
+### openclaw.json（LLM API Key 来源）
+
+`process-comments.py` 用 `ws-claw-corp` 的 API Key 调 LLM 生成回复，Key 从 `openclaw.json` 读取。**路径不写死任何用户家目录**，按以下优先级自动探测：
+
+1. 环境变量 `OPENCLAW_CONFIG` 指向的文件（最高优先级，容器/CI 场景用）
+2. 当前用户家目录 `~/.openclaw/openclaw.json`（默认；root 运行→`/root/...`，ubuntu 运行→`/home/ubuntu/...`，自动正确）
+
+**迁移到新用户/新环境时**：只要该用户家目录下有合法的 `~/.openclaw/openclaw.json`（含 `models.providers.ws-claw-corp.apiKey`），无需改任何代码。若报 `Permission denied` 或 `无 API Key`，检查的就是这条。
+
+> 历史踩坑（2026-08-02）：旧版本曾把路径硬编码为 `/root/.openclaw/openclaw.json`，迁移到 ubuntu 用户后读取失败、静默退回兜底模板，表现为"回复变蠢/全是模板腔"。已修复为上面的自动探测。
+
 ## 禁止行为
 
 - 不要直接复述旧的 `comment-check-report.md`

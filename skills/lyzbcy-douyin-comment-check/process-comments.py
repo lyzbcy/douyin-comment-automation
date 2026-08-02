@@ -21,7 +21,10 @@ OUTPUT_DIR = BASE_DIR / "comments-output"
 INPUT_FILE = OUTPUT_DIR / "unreplied-latest.json"
 MERGED_PLAN_FILE = OUTPUT_DIR / "reply-plan.json"
 MANIFEST_FILE = OUTPUT_DIR / "reply-plan-manifest.json"
-CONFIG_FILE = Path("/root/.openclaw/openclaw.json")
+# openclaw.json 路径——可移植探测，不写死任何用户家目录
+# 优先级：环境变量 OPENCLAW_CONFIG > 当前用户 ~/.openclaw/openclaw.json > 旧路径兜底
+# 这样 root / ubuntu / 任何用户运行都正确，迁移到新环境无需改代码。
+CONFIG_FILE = Path(__import__("os").environ.get("OPENCLAW_CONFIG", str(Path.home() / ".openclaw" / "openclaw.json")))
 PERSONA_FILE = BASE_DIR / "persona.json"
 
 # LLM API — 直连 ws-claw-corp, 3s/条
