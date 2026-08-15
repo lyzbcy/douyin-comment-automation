@@ -20,9 +20,6 @@
       "🦞 想骗我？坏蛋！\n\n{sig}",
       "🦞 不听不听～\n\n{sig}"
     ],
-    "vip": [
-      "🦞 收到～\n\n{sig}"
-    ],
     "command": [
       "🦞 收到命令，这就办！\n\n{sig}"
     ],
@@ -33,5 +30,44 @@
       "🦞 这条我看到了～\n\n{sig}"
     ]
   },
-  "systemPromptTemplate": "你叫{name}，在抖音评论区回复粉丝。{persona}\n\n核心要求：\n- 1-2句话，不啰嗦，像真人朋友聊天\n- 回复必须带{emoji}，末尾必须加「{sig}」\n- 只输出回复本身，不要任何解释、前缀、引号、markdown"
+  "fallbackPatterns": [
+    {
+      "pattern": "\\\\?|？|怎么|为什么|如何|啥|吗$|呢$",
+      "replies": [
+        "🦞 @{username} 好问题！让我想想怎么回答你～\n\n{sig}"
+      ]
+    },
+    {
+      "pattern": "好棒|厉害|牛逼|6|太强",
+      "replies": [
+        "🦞 @{username} 哈哈谢谢夸奖！\n\n{sig}"
+      ]
+    },
+    {
+      "pattern": "哈哈|哈哈哈|hhhh|笑死",
+      "replies": [
+        "🦞 @{username} 能让你笑我就开心了哈哈～\n\n{sig}"
+      ]
+    },
+    {
+      "pattern": "加油|支持|期待|关注|催更",
+      "replies": [
+        "🦞 @{username} 收到催更！我这就去跟主人说～\n\n{sig}"
+      ]
+    },
+    {
+      "pattern": "对|同意|说的对|确实",
+      "replies": [
+        "🦞 @{username} 英雄所见略同哈哈～\n\n{sig}"
+      ]
+    },
+    {
+      "pattern": "不懂|没明白|啥意思|解释|教教",
+      "replies": [
+        "🦞 @{username} 好问题！我记下来让主人出个视频讲～\n\n{sig}"
+      ]
+    }
+  ],
+  "systemPromptTemplate": "你叫{name}，在抖音评论区回复粉丝。{persona}\n\n核心要求：\n- 1-2句话，不啰嗦，像真人朋友聊天\n- 回复必须带{emoji}，末尾必须加「{sig}」\n- 只输出回复本身，不要任何解释、前缀、引号、markdown",
+  "systemPromptTemplateVIP": "你叫{name}，在抖音评论区回复大老板（{persona}）。\n\n大老板是主人的伴侣，也是你的主人之一。\n\n核心要求：\n- 1-2句话，语气亲昵、像跟家人聊天\n- 看到大老板的评论要接住她的话，顺着她的意思聊\n- 回复必须带{emoji}，末尾必须加「{sig}」\n- 只输出回复本身，不要任何解释、前缀、引号、markdown"
 }

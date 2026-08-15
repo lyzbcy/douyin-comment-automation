@@ -1,10 +1,20 @@
 #!/usr/bin/env python3
 """
-抖音评论智能回复生成器 v2 — LLM 驱动版
-每条评论通过 ws-claw-corp API 实时生成个性化回复，替代关键词模板匹配
+抖音评论智能回复生成器 v3 — LLM 驱动 + 正则兜底 + 日志入库
+
+核心流程：
+1. 每条评论优先走 LLM API 生成个性化回复
+2. LLM 失败时按优先级降级：正则匹配(评论内容) → 通用模板
+3. 所有回复均记录到 SQLite (reply_logs.db)，供审计和统计
 
 身份信息（昵称/人设/特殊用户/模板）从同目录 persona.json 加载，
 换 agent 时只需改 persona.json，无需改动本文件。见 persona.example.json。
+
+v3 变更 (2026-08-15)：
+- VIP 用户（大老板）不走模板，改为专属 system prompt + LLM 生成
+- 新增 fallbackReply 正则匹配（persona.json 的 fallbackPatterns），
+  LLM 失败时先按评论内容特征匹配个性化回复，再降级到通用模板
+- 所有回复写入 SQLite 数据库 (log_db.py)，自动保留30天
 """
 import json
 import random
@@ -36,14 +46,19 @@ LLM_CONCURRENCY = 3
 LLM_MAX_RETRIES = 2  # 空返回时重试次数
 
 
+# 引入日志模块
+from log_db import log_reply, cleanup_old_logs  # noqa: E402
+
+
 def _fill(template: str, identity: dict) -> str:
-    """用 identity 字段填充模板占位符 {name}/{sig}/{emoji}/{persona}。"""
-    return template.format(
-        name=identity["name"],
-        sig=identity["signature"],
-        emoji=identity["emoji"],
-        persona=identity["persona"],
-    )
+    """用 identity 字段填充模板占位符 {name}/{sig}/{emoji}/{persona}。
+    使用 replace 而非 format，这样 {username} 等运行时占位符会保留原样。"""
+    result = template
+    result = result.replace("{name}", identity["name"])
+    result = result.replace("{sig}", identity["signature"])
+    result = result.replace("{emoji}", identity["emoji"])
+    result = result.replace("{persona}", identity["persona"])
+    return result
 
 
 def load_persona() -> dict:
@@ -67,6 +82,15 @@ def load_persona() -> dict:
         rendered_templates[key] = [_fill(t, identity) for t in templates]
 
     system_prompt = _fill(raw["systemPromptTemplate"], identity)
+    system_prompt_vip = _fill(raw.get("systemPromptTemplateVIP", ""), identity) if raw.get("systemPromptTemplateVIP") else ""
+
+    # 渲染所有 fallbackPatterns 里的 {sig}/{emoji}/{name}/{persona} 占位符
+    rendered_fallback_patterns = []
+    for pattern in raw.get("fallbackPatterns", []):
+        rendered_fallback_patterns.append({
+            "pattern": pattern["pattern"],
+            "replies": [_fill(t, identity) for t in pattern["replies"]],
+        })
 
     return {
         "identity": identity,
@@ -74,11 +98,32 @@ def load_persona() -> dict:
         "commandKeyword": raw.get("commandKeyword", ""),
         "maliciousKeywords": raw.get("maliciousKeywords", []),
         "replyTemplates": rendered_templates,
+        "fallbackPatterns": rendered_fallback_patterns,
         "systemPrompt": system_prompt,
+        "systemPromptVIP": system_prompt_vip,
     }
 
 
 PERSONA = load_persona()
+
+# 从 persona.json 加载正则降级模式
+FALLBACK_PATTERNS = PERSONA.get("fallbackPatterns", [])
+
+
+def regex_fallback_reply(comment_text: str, username: str = "") -> str:
+    """按正则匹配评论内容，返回个性化降级回复。
+    匹配优先级：先匹配的先返回。无匹配返回空字符串。
+    支持 {username} 占位符，自动替换为评论用户名。"""
+    for pattern in FALLBACK_PATTERNS:
+        try:
+            if re.search(pattern["pattern"], comment_text, re.IGNORECASE):
+                reply = random.choice(pattern["replies"])
+                if "{username}" in reply and username:
+                    reply = reply.replace("{username}", username)
+                return reply
+        except re.error:
+            continue
+    return ""
 
 
 def load_api_key():
@@ -99,11 +144,19 @@ def is_llm_short(reply: str) -> bool:
 
 def call_llm(username: str, comment_text: str, work_title: str, api_key: str) -> str:
     """调用 LLM 生成个性化回复，支持空返回重试"""
-    user_msg = f"「{username}」的评论：「{comment_text}」\n视频标题：「{work_title}」\n\n生成一个有个性的回复："
+    is_vip = username and username == _vip_username()
     identity = PERSONA["identity"]
     emoji = identity["emoji"]
     sig = identity["signature"]
     sig_tail = sig.split("来自")[-1] if "来自" in sig else sig
+
+    # VIP 用户（大老板）用专属 system prompt，语气更亲昵
+    if is_vip:
+        system_prompt = PERSONA["systemPromptVIP"]
+    else:
+        system_prompt = PERSONA["systemPrompt"]
+
+    user_msg = f"「{username}」的评论：「{comment_text}」\n视频标题：「{work_title}」\n\n生成一个有个性的回复："
 
     for attempt in range(LLM_MAX_RETRIES + 1):
         try:
@@ -116,7 +169,7 @@ def call_llm(username: str, comment_text: str, work_title: str, api_key: str) ->
                 json={
                     "model": LLM_MODEL,
                     "messages": [
-                        {"role": "system", "content": PERSONA["systemPrompt"]},
+                        {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_msg},
                     ],
                     "max_tokens": LLM_MAX_TOKENS,
@@ -130,17 +183,14 @@ def call_llm(username: str, comment_text: str, work_title: str, api_key: str) ->
 
             if content and not is_llm_short(content):
                 result = content.strip()
-                # 确保格式正确（emoji 与签名从 persona 读取，不再硬编码）
                 if emoji not in result:
                     result = f"{emoji} " + result
                 if sig not in result and sig_tail not in result:
                     result = result.rstrip() + f"\n\n{sig}"
-                # 修复可能的连续换行
                 result = re.sub(r"\n{3,}", "\n\n", result)
                 return result
 
             if attempt < LLM_MAX_RETRIES:
-                # 空返回或太短，重试
                 time.sleep(0.5)
                 continue
         except Exception as e:
@@ -157,9 +207,7 @@ def _vip_username() -> str:
 
 
 def is_template_case(username: str, comment_text: str) -> bool:
-    """判断是否需要走硬编码模板（特殊用户/恶意注入/命令关键词）"""
-    if username and username == _vip_username():
-        return True
+    """判断是否需要走硬编码模板（仅恶意注入/命令关键词，VIP 不再拦截）"""
     lowered = comment_text.lower()
     for kw in PERSONA["maliciousKeywords"]:
         if kw in lowered:
@@ -170,10 +218,8 @@ def is_template_case(username: str, comment_text: str) -> bool:
 
 
 def template_reply(username: str, comment_text: str) -> str:
-    """按 persona 模板回复"""
+    """按 persona 模板回复（仅恶意注入/命令关键词，VIP 不再走模板）"""
     templates = PERSONA["replyTemplates"]
-    if username and username == _vip_username():
-        return random.choice(templates.get("vip", []))
     lowered = comment_text.lower()
     for kw in PERSONA["maliciousKeywords"]:
         if kw in lowered:
@@ -183,7 +229,13 @@ def template_reply(username: str, comment_text: str) -> str:
     return ""
 
 
-def fallback_reply(comment_text: str) -> str:
+def fallback_reply(comment_text: str, username: str = "") -> str:
+    """降级回复：优先按正则匹配（带用户名），再降级到通用模板"""
+    # 先试正则匹配
+    regex_result = regex_fallback_reply(comment_text, username)
+    if regex_result:
+        return regex_result
+    # 再试通用模板
     stripped = comment_text.strip()
     templates = PERSONA["replyTemplates"]
     if not stripped or len(stripped) <= 3:
@@ -201,15 +253,14 @@ def load_input():
 
 def _classify(username: str, comment_text: str) -> str:
     """返回模板来源分类名（用于统计），与 is_template_case 逻辑对齐。"""
-    if username and username == _vip_username():
-        return "vip"
     lowered = comment_text.lower()
     for kw in PERSONA["maliciousKeywords"]:
         if kw in lowered:
             return "malicious"
     if PERSONA["commandKeyword"] and PERSONA["commandKeyword"] in comment_text:
         return "command"
-    return "fallback"
+    # VIP 和普通用户全走 LLM，降级时区分
+    return "llm"  # 默认期望 LLM，实际降级时在 main 里改
 
 
 def main():
@@ -274,23 +325,38 @@ def main():
     # 合并结果
     merged_comments = []
     grouped = OrderedDict()
-    stats = {"llm": 0, "vip": 0, "malicious": 0, "command": 0, "fallback": 0}
+    stats = {"llm": 0, "vip_llm": 0, "malicious": 0, "command": 0, "regex_fallback": 0, "fallback": 0}
 
     for idx, item in enumerate(comments):
         username = item.get("username") or item.get("author") or ""
         comment_text = item.get("commentText") or item.get("content") or ""
         work = item.get("work") or ""
         work_full = item.get("workFull") or work or "未知作品"
+        is_vip = username and username == _vip_username()
 
         if idx in llm_result_map:
             reply_message = llm_result_map[idx]
-            stats["llm"] += 1
+            source_type = "vip_llm" if is_vip else "llm"
+            stats[source_type] += 1
+            log_reply(source_type, username, comment_text, work_full, reply_message,
+                      model=LLM_MODEL)
         elif is_template_case(username, comment_text):
             reply_message = template_reply(username, comment_text)
-            stats[_classify(username, comment_text)] += 1
+            source_type = _classify(username, comment_text)
+            stats[source_type] += 1
+            log_reply(source_type, username, comment_text, work_full, reply_message,
+                      success=True, error_reason="模板匹配")
         else:
-            reply_message = fallback_reply(comment_text)
-            stats["fallback"] += 1
+            reply_message = fallback_reply(comment_text, username)
+            # 判断是正则匹配还是通用模板
+            regex_result = regex_fallback_reply(comment_text, username)
+            if regex_result:
+                source_type = "regex_fallback"
+            else:
+                source_type = "fallback"
+            stats[source_type] += 1
+            log_reply(source_type, username, comment_text, work_full, reply_message,
+                      success=False, error_reason="LLM失败，降级" if api_key else "无API Key，降级")
 
         normalized = {
             "username": username,
