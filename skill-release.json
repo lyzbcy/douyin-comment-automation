@@ -1,0 +1,16 @@
+{
+  "repo": "douyin-comment-automation",
+  "directory": "douyin-comment-automation",
+  "version": "0.1.1",
+  "asset": "douyin-comment-automation-skill.zip",
+  "include": [
+    "SKILL.md",
+    "README.md",
+    "package.json",
+    "package-lock.json",
+    "src",
+    "tools",
+    "references"
+  ],
+  "repository": "lyzbcy/douyin-comment-automation"
+}

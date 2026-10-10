@@ -1,6 +1,6 @@
 {
   "name": "douyin-creator-tools",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "基于 Playwright 的抖音创作者中心自动化工具：评论导出/回复、作品管理、文章发布。",
@@ -37,7 +37,8 @@
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write \"src/**/*.mjs\" \"*.json\" \"*.md\"",
-    "format:check": "prettier --check \"src/**/*.mjs\" \"*.json\" \"*.md\""
+    "format:check": "prettier --check \"src/**/*.mjs\" \"*.json\" \"*.md\"",
+    "release:skill": "python scripts/package-skill.py"
   },
   "dependencies": {
     "better-sqlite3": "^12.8.0",

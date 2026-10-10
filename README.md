@@ -1,3 +1,13 @@
+# 抖音评论自动回复 Skill
+
+## Release一键安装
+
+下载[最新Skill ZIP](https://github.com/lyzbcy/douyin-comment-automation/releases/latest/download/douyin-comment-automation-skill.zip)，或在捞鱼软件中心点击一键安装。完整目录放入用户主目录 .agents/skills/douyin-comment-automation。SKILL.md是通用入口，Node.js 22+；首次使用需npm ci、Playwright浏览器及用户本人扫码登录。
+
+示例：请用douyin-comment-automation读取我最近一个作品的未回复评论，生成礼貌的回复草稿，先不发送。确认草稿后再明确授权发送。
+
+通用Release使用相对工具目录，原OpenClaw专用Skill继续保留在源码skills/中。运行能力来自本仓库的Playwright CLI（原始工具来源wenyg/douyin-creator-tools）；Release不包含账号、Cookie或回复历史。
+
 # douyin-creator-tools
 
 本仓库基于 Playwright 做抖音创作者中心自动化，供 OpenClaw 通过内置 skill 调度。当前覆盖三件核心能力：
