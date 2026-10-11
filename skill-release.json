@@ -1,7 +1,7 @@
 {
   "repo": "douyin-comment-automation",
   "directory": "douyin-comment-automation",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "asset": "douyin-comment-automation-skill.zip",
   "include": [
     "SKILL.md",
@@ -10,7 +10,8 @@
     "package-lock.json",
     "src",
     "tools",
-    "references"
+    "references",
+    ".laoyu"
   ],
   "repository": "lyzbcy/douyin-comment-automation"
 }

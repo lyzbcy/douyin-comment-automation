@@ -1,6 +1,6 @@
 {
   "name": "douyin-creator-tools",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "description": "基于 Playwright 的抖音创作者中心自动化工具：评论导出/回复、作品管理、文章发布。",
@@ -33,12 +33,13 @@
     "predict": "node ./src/video-prediction.mjs",
     "sync:feishu": "node ./src/sync/feishu-sync.mjs",
     "cleanup": "node ./src/cleanup.mjs",
-    "test": "node --test test/*.test.mjs",
+    "test": "node --test test/*.test.mjs tests/release-updater.test.cjs",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write \"src/**/*.mjs\" \"*.json\" \"*.md\"",
     "format:check": "prettier --check \"src/**/*.mjs\" \"*.json\" \"*.md\"",
-    "release:skill": "python scripts/package-skill.py"
+    "release:skill": "python scripts/package-skill.py",
+    "skill:update": "node .laoyu/update.cjs"
   },
   "dependencies": {
     "better-sqlite3": "^12.8.0",
