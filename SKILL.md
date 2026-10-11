@@ -2,7 +2,7 @@
 name: douyin-comment-automation
 description: 在抖音创作者中心读取作品和未回复评论、生成回复草稿，并在用户授权后批量回复与核验结果。用于抖音评论导出、回复预览和自动回复；安装本Skill不创建定时任务或发送消息。
 metadata:
-  version: "0.1.2"
+  version: "0.1.3"
   source: https://github.com/lyzbcy/douyin-comment-automation
 ---
 
