@@ -2,7 +2,7 @@
 name: douyin-comment-automation
 description: 在抖音创作者中心读取作品和未回复评论、生成回复草稿，并在用户授权后批量回复与核验结果。用于抖音评论导出、回复预览和自动回复；安装本Skill不创建定时任务或发送消息。
 metadata:
-  version: "0.1.3"
+  version: "0.1.4"
   source: https://github.com/lyzbcy/douyin-comment-automation
 ---
 
@@ -38,3 +38,7 @@ Windows、macOS、Linux均以本目录的Node工具运行；本包不依赖Linux
 每天首次加载本 Skill 时，先运行 `node "<Skill目录>/.laoyu/update.cjs"`，再继续本次任务。只读取最新正式 Release，校验 GitHub SHA-256 和逐文件清单；失败继续旧版，不阻断任务。若输出 UPDATED，重新读取 SKILL.md。本人登录、稿件、运行数据保留；配套代码被本地修改时停止升级。更新默认开启，可在软件中心详情单独关闭，或运行相同命令加 --disable / --enable。手动重试加 --force，回滚加 --rollback；回滚只接受本次管理的备份，仍保留最新用户数据。
 
 
+
+## 使用结束：运行小结与可选贡献
+
+按本次约定完成评论导出/草稿或已授权回复并核验，用户确认本轮结果完成且无待处理问题后；草稿确认只授权发送时继续发送核验，不提前打断。长期定时检查只在用户结束该批任务或主动复盘时集中询问，不在每个轮次、每条评论后重复邀约。按[集思广益提PR组件](references/community-contribution.md)先给本次运行小结，评估可迁移经验；值得时先准备脱敏草案，等用户确认最终完成后询问一次PR意愿，合入后按本人意愿署名或匿名。未同意不公开；用户答复后无论同意或拒绝，都按组件清理本次临时贡献包，保护正式交付与运行资料。多skill串联由末阶段合并收尾，不重复邀请。

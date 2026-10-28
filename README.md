@@ -139,3 +139,7 @@ cd "$PROJECT_DIR" && npm run comments:reply -- ./comments-output/unreplied-comme
 - 页面结构变化导致命令失败时，让用户先人工核查，**不要直接改 `src/` 代码热修复**
 - 不生成引流、外链、联系方式、敏感词等违规内容
 - Agent 绝不替用户扫码登录
+
+## 使用小结与经验贡献
+
+任务最终交付并获用户确认后，先总结问题、迭代与实现，再按[集思广益组件](references/community-contribution.md)评估并邀请脱敏PR；经同意才公开，合入后可署名或匿名。用户答复后清理本次临时贡献包，保护交付与私有运行资料。
